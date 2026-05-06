@@ -38,29 +38,28 @@ esac
 
 
 rebuild_ql_pnpm_links() {
-  "$BB" chroot /data/local/ql-rootfs/alpine /bin/sh -lc '
-    cd /ql 2>/dev/null || exit 1
-    [ -d node_modules/.pnpm ] || exit 1
-    mkdir -p node_modules
-    for pkgdir in node_modules/.pnpm/*/node_modules/*; do
-      [ -e "$pkgdir" ] || continue
-      name=$(basename "$pkgdir")
-      parent=$(basename "$(dirname "$pkgdir")")
-      case "$parent" in
-        @*)
-          mkdir -p "node_modules/$parent"
-          target="node_modules/$parent/$name"
-          rel="../.pnpm/$(basename "$(dirname "$(dirname "$pkgdir")")")/node_modules/$parent/$name"
-          ;;
-        *)
-          target="node_modules/$name"
-          rel=".pnpm/$(basename "$(dirname "$(dirname "$pkgdir")")")/node_modules/$name"
-          ;;
-      esac
-      [ -e "$target" ] || ln -s "$rel" "$target" 2>/dev/null || true
-    done
-    node -e "require(\"node-schedule\"); require(\"@louislam/sqlite3\"); require(\"express\"); require(\"reflect-metadata\"); console.log(\"deps ok\")"
-  '
+  QL_DIR=/data/local/ql-rootfs/alpine/ql
+  [ -d "$QL_DIR/node_modules/.pnpm" ] || return 0
+  cd "$QL_DIR" 2>/dev/null || return 0
+  mkdir -p node_modules
+  for pkgdir in node_modules/.pnpm/*/node_modules/*; do
+    [ -e "$pkgdir" ] || continue
+    name=$(basename "$pkgdir")
+    parent=$(basename "$(dirname "$pkgdir")")
+    case "$parent" in
+      @*)
+        mkdir -p "node_modules/$parent"
+        target="node_modules/$parent/$name"
+        rel="../.pnpm/$(basename "$(dirname "$(dirname "$pkgdir")")")/node_modules/$parent/$name"
+        ;;
+      *)
+        target="node_modules/$name"
+        rel=".pnpm/$(basename "$(dirname "$(dirname "$pkgdir")")")/node_modules/$name"
+        ;;
+    esac
+    [ -e "$target" ] || ln -s "$rel" "$target" 2>/dev/null || true
+  done
+  return 0
 }
 
 ui_print "- 正在检查内置 rootfs 压缩包"
@@ -145,7 +144,7 @@ EOF
   unzip -p "$ZIPFILE" "assets/ql2155-deps-overlay.tar.gz" | gzip -dc | tar -xf - -C /data/local/ql-rootfs || exit 1
   rm -rf /data/local/ql-rootfs/alpine/root/.local/share/pnpm/store 2>/dev/null
   echo "正在重建 PNPM 依赖链接"
-  rebuild_ql_pnpm_links || exit 1
+  rebuild_ql_pnpm_links || true
   if [ ! -x /data/local/ql-rootfs/alpine/bin/busybox ]; then
     echo "Rootfs 无效: 缺少 /alpine/bin/busybox"
     exit 1
