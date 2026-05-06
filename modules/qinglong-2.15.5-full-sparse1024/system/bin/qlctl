@@ -208,6 +208,19 @@ rebuild_pnpm_links() {
   ' >/dev/null 2>&1
 }
 
+
+ensure_python_runtime() {
+  mount_rootfs || return 1
+  if "$BUSYBOX" chroot "$ROOTFS" /bin/sh -lc 'python3 --version >/dev/null 2>&1 && pip3 --version >/dev/null 2>&1' >/dev/null 2>&1; then
+    return 0
+  fi
+  MODDIR=$(find_module_dir)
+  if [ -f "$MODDIR/assets/ql-python310-overlay.tar.gz" ]; then
+    gzip -dc "$MODDIR/assets/ql-python310-overlay.tar.gz" | "$BUSYBOX" tar -xf - -C "$ROOTFS" || return 1
+  fi
+  "$BUSYBOX" chroot "$ROOTFS" /bin/sh -lc 'python3 --version >/dev/null 2>&1 && pip3 --version >/dev/null 2>&1' >/dev/null 2>&1
+}
+
 ensure_full_deps() {
   mount_rootfs || return 1
   if "$BUSYBOX" chroot "$ROOTFS" /bin/sh -lc 'cd /ql && node -e "require(\"node-schedule\"); require(\"@louislam/sqlite3\"); require(\"express\"); require(\"reflect-metadata\")"' >/dev/null 2>&1; then
@@ -228,6 +241,9 @@ start_ql() {
     exit 1
   }
   check_rootfs_space
+  ensure_python_runtime || {
+    echo "Python3 runtime is not ready"
+  }
   ensure_full_deps || {
     echo "QingLong dependencies are not ready"
     exit 1

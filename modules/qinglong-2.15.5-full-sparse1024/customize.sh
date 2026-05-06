@@ -145,6 +145,12 @@ EOF
   rm -rf /data/local/ql-rootfs/alpine/root/.local/share/pnpm/store 2>/dev/null
   echo "正在重建 PNPM 依赖链接"
   rebuild_ql_pnpm_links || true
+  if unzip -l "$ZIPFILE" "assets/ql-python310-overlay.tar.gz" >/dev/null 2>&1; then
+    echo "正在解压 Python3/pip 离线运行时"
+    unzip -p "$ZIPFILE" "assets/ql-python310-overlay.tar.gz" | gzip -dc | tar -xf - -C /data/local/ql-rootfs/alpine || exit 1
+    /data/local/ql-rootfs/alpine/usr/bin/python3 --version || true
+    /data/local/ql-rootfs/alpine/usr/bin/pip3 --version || true
+  fi
   if [ ! -x /data/local/ql-rootfs/alpine/bin/busybox ]; then
     echo "Rootfs 无效: 缺少 /alpine/bin/busybox"
     exit 1
