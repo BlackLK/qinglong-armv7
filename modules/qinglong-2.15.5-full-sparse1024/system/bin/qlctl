@@ -215,7 +215,7 @@ ensure_full_deps() {
   fi
   MODDIR=$(find_module_dir)
   if [ -f "$MODDIR/assets/ql2155-deps-overlay.tar.gz" ]; then
-    "$BUSYBOX" tar -xzf "$MODDIR/assets/ql2155-deps-overlay.tar.gz" -C "$ROOTFS" || return 1
+    gzip -dc "$MODDIR/assets/ql2155-deps-overlay.tar.gz" | "$BUSYBOX" tar -xf - -C "$ROOTFS" || return 1
   fi
   rebuild_pnpm_links || return 1
   "$BUSYBOX" chroot "$ROOTFS" /bin/sh -lc 'cd /ql && node -e "require(\"node-schedule\"); require(\"@louislam/sqlite3\"); require(\"express\"); require(\"reflect-metadata\")"' >/dev/null 2>&1
