@@ -182,6 +182,45 @@ status_ql() {
   fi
 }
 
+rebuild_pnpm_links() {
+  mount_rootfs || return 1
+  "$BUSYBOX" chroot "$ROOTFS" /bin/sh -lc '
+    cd /ql 2>/dev/null || exit 1
+    [ -d node_modules/.pnpm ] || exit 1
+    mkdir -p node_modules
+    for pkgdir in node_modules/.pnpm/*/node_modules/*; do
+      [ -e "$pkgdir" ] || continue
+      name=$(basename "$pkgdir")
+      parent=$(basename "$(dirname "$pkgdir")")
+      case "$parent" in
+        @*)
+          mkdir -p "node_modules/$parent"
+          target="node_modules/$parent/$name"
+          rel="../.pnpm/$(basename "$(dirname "$(dirname "$pkgdir")")")/node_modules/$parent/$name"
+          ;;
+        *)
+          target="node_modules/$name"
+          rel=".pnpm/$(basename "$(dirname "$(dirname "$pkgdir")")")/node_modules/$name"
+          ;;
+      esac
+      [ -e "$target" ] || ln -s "$rel" "$target" 2>/dev/null || true
+    done
+  ' >/dev/null 2>&1
+}
+
+ensure_full_deps() {
+  mount_rootfs || return 1
+  if "$BUSYBOX" chroot "$ROOTFS" /bin/sh -lc 'cd /ql && node -e "require(\"node-schedule\"); require(\"@louislam/sqlite3\"); require(\"express\"); require(\"reflect-metadata\")"' >/dev/null 2>&1; then
+    return 0
+  fi
+  MODDIR=$(find_module_dir)
+  if [ -f "$MODDIR/assets/ql2155-deps-overlay.tar.gz" ]; then
+    "$BUSYBOX" tar -xzf "$MODDIR/assets/ql2155-deps-overlay.tar.gz" -C "$ROOTFS" || return 1
+  fi
+  rebuild_pnpm_links || return 1
+  "$BUSYBOX" chroot "$ROOTFS" /bin/sh -lc 'cd /ql && node -e "require(\"node-schedule\"); require(\"@louislam/sqlite3\"); require(\"express\"); require(\"reflect-metadata\")"' >/dev/null 2>&1
+}
+
 start_ql() {
   ensure_dirs
   mount_rootfs || {
@@ -189,6 +228,10 @@ start_ql() {
     exit 1
   }
   check_rootfs_space
+  ensure_full_deps || {
+    echo "QingLong dependencies are not ready"
+    exit 1
+  }
   if "$BUSYBOX" chroot "$ROOTFS" /bin/sh -lc "export HOME=/root PM2_HOME=/root/.pm2 QL_DIR=/ql PATH=/usr/local/bin:/root/.local/share/pnpm:/root/.local/share/pnpm/global/5/node_modules/.bin:\$PATH; command -v pm2 >/dev/null 2>&1 && pm2 jlist 2>/dev/null | grep -q '\"status\":\"online\"'" >/dev/null 2>&1; then
     echo "QingLong already appears to be running"
     return 0
