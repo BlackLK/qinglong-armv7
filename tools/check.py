@@ -4,9 +4,9 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 ZIPS = [
-    ROOT / 'release' / 'QL-2.10.13-sparse1536-stuka.zip',
-    ROOT / 'release' / 'QL-2.15.5-full-sparse1536-stuka.zip',
-    ROOT / 'release' / 'QL-2.15.5-online-sparse1536-stuka.zip',
+    ROOT / 'release' / 'QL-2.10.13-sparse1024-stuka.zip',
+    ROOT / 'release' / 'QL-2.15.5-full-sparse1024-stuka.zip',
+    ROOT / 'release' / 'QL-2.15.5-online-sparse1024-stuka.zip',
 ]
 FORBIDDEN = ['auto_resize_if_needed', 'manual_resize_from_config', 'ROOTFS_MB', 'ROOTFS_SIZE_FILE', 'resize2fs']
 
@@ -28,7 +28,7 @@ def check_zip(path: Path) -> bool:
         prop = read_text(zf, 'module.prop')
         checks = {
             'zip_ok': bad_file is None,
-            'sparse_dd': 'count=0 seek=1536' in customize,
+            'sparse_dd': 'count=0 seek=1024' in customize,
             'busybox_mount': '"$BB" mount -o loop,rw' in customize or '"$BUSYBOX" mount -o loop,rw' in qlctl,
             'default_auth': 'admin123' in customize and 'admin/admin123' in prop,
             'python_cmd': 'install_python_ql()' in qlctl and 'python) install_python_ql ;;' in qlctl,

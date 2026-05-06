@@ -1,0 +1,6 @@
+id=qinglong_lite
+name=青龙2.10.13稀疏镜像版
+version=0.5.0
+versionCode=5
+author=stuka
+description=青龙2.10.13稀疏镜像版。rootfs使用1024MB稀疏ext4镜像，避免/data inode不足且降低真实占用；已移除自动/手动扩容；默认登录 admin/admin123。

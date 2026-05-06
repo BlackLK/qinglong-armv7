@@ -6,9 +6,9 @@
 
 | 模块 | 说明 | 推荐程度 |
 | --- | --- | --- |
-| `QL-2.10.13-sparse1536-stuka.zip` | QingLong 2.10.13，1536MB 稀疏 ext4 rootfs | 可用 |
-| `QL-2.15.5-full-sparse1536-stuka.zip` | QingLong 2.15.5，全量依赖，1536MB 稀疏 ext4 rootfs | 推荐 |
-| `QL-2.15.5-online-sparse1536-stuka.zip` | QingLong 2.15.5，安装时联网下载依赖 | 不推荐作稳定包 |
+| `QL-2.10.13-sparse1024-stuka.zip` | QingLong 2.10.13，1024MB 稀疏 ext4 rootfs | 可用 |
+| `QL-2.15.5-full-sparse1024-stuka.zip` | QingLong 2.15.5，全量依赖，1024MB 稀疏 ext4 rootfs | 推荐 |
+| `QL-2.15.5-online-sparse1024-stuka.zip` | QingLong 2.15.5，安装时联网下载依赖 | 不推荐作稳定包 |
 
 ## 设备支持
 
@@ -24,8 +24,8 @@ armeabi
 ## 主要特性
 
 - 使用 `/data/local/ql/rootfs.ext4` 作为 rootfs 镜像。
-- rootfs 逻辑大小为 1536MB。
-- 使用稀疏 ext4 镜像：`ls` 显示 1.5G，但真实占用随内容增长。
+- rootfs 逻辑大小为 1024MB。
+- 使用稀疏 ext4 镜像：`ls` 显示 1.0G，但真实占用随内容增长。
 - 避免目录 rootfs 在低 inode 设备上耗尽 inode。
 - 移除自动扩容和手动扩容逻辑。
 - 默认登录账号：`admin` / `admin123`。
@@ -35,9 +35,9 @@ armeabi
 
 ```text
 modules/
-  qinglong-2.10.13-sparse1536/
-  qinglong-2.15.5-full-sparse1536/
-  qinglong-2.15.5-online-sparse1536/
+  qinglong-2.10.13-sparse1024/
+  qinglong-2.15.5-full-sparse1024/
+  qinglong-2.15.5-online-sparse1024/
 release/
   QL-*.zip
 tools/
@@ -98,7 +98,7 @@ python tools/check.py
 将 zip 放到设备后，在 Magisk 中刷入，或使用：
 
 ```sh
-su -c 'magisk --install-module /sdcard/Download/QL-2.15.5-full-sparse1536-stuka.zip'
+su -c 'magisk --install-module /sdcard/Download/QL-2.15.5-full-sparse1024-stuka.zip'
 ```
 
 刷入后建议重启设备。

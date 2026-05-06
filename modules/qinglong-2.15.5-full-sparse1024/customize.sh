@@ -4,18 +4,18 @@ BB=/sbin/.magisk/busybox/busybox
 [ -x "$BB" ] || BB=/system/bin/busybox
 [ -x "$BB" ] || BB=busybox
 INSTALL_START_TS="$(date +%s)"
-ui_print "- 正在安装青龙 Lite 2.10.13 控制器"
+ui_print "- 正在安装青龙 Lite 2.15.5 控制器（全量依赖版）"
 ui_print "- 测试说明: 目前仅在小度 X6 / Magisk 30.4 / Android 8.1 / armeabi-v7a 环境实测通过"
 ui_print "- 其他设备或其他 Magisk 版本未完整验证，如需使用请自行确认兼容性"
-ui_print "- 模块 ID: qinglong_lite"
-ui_print "- 模块版本: 0.5.0 (5)"
+ui_print "- 模块 ID: qinglong_lite_2155"
+ui_print "- 模块版本: 2.15.5-lite.1 (2023013001)"
 ui_print "- Magisk 版本: $MAGISK_VER ($MAGISK_VER_CODE)"
 ui_print "- 设备架构: $ARCH"
 ui_print "- 测试设备: 小度 X6"
 ui_print "- 目标环境: Magisk 30.4 / Android armv7"
-ui_print "- 内置青龙 rootfs: Alpine armv7，基于青龙 2.10.13"
+ui_print "- 内置青龙 rootfs: Alpine armv7，基于青龙 2.15.5 (20230130)"
 ui_print "- 刷入过程中会自动部署 rootfs"
-ui_print "- Rootfs 存储方式: 1536MB 稀疏 ext4 镜像文件，避免 /data inode 耗尽"
+ui_print "- Rootfs 存储方式: 1024MB 稀疏 ext4 镜像文件，避免 /data inode 耗尽"
 ui_print "- 刷入完成后会启用开机自启"
 ui_print "- 启动保护已启用: 延迟启动 + 内存检查 + 异常自动停止"
 
@@ -87,12 +87,12 @@ ui_print "- 正在部署青龙 rootfs 到 /data/local/ql-rootfs"
   [ -n "$DATA_AVAIL_MB" ] || DATA_AVAIL_MB=0
   echo "当前 /data 可用空间: ${DATA_AVAIL_MB}MB"
   if [ "$DATA_AVAIL_MB" -lt 700 ]; then
-    echo "空间不足: 创建 1536MB 稀疏 rootfs 镜像至少建议 /data 可用 700MB，请先卸载旧挂载或清理空间"
+    echo "空间不足: 创建 1024MB 稀疏 rootfs 镜像至少建议 /data 可用 450MB，请先卸载旧挂载或清理空间"
     exit 1
   fi
-  echo "[进度 03/08][37%] ██████░░░░░░░░░░ 创建 1536MB 稀疏 ext4 rootfs 镜像"
+  echo "[进度 03/08][37%] ██████░░░░░░░░░░ 创建 1024MB 稀疏 ext4 rootfs 镜像"
   echo "正在创建 ext4 rootfs 镜像"
-  "$BB" dd if=/dev/zero of=/data/local/ql/rootfs.ext4 bs=1M count=0 seek=1536 || exit 1
+  "$BB" dd if=/dev/zero of=/data/local/ql/rootfs.ext4 bs=1M count=0 seek=1024 || exit 1
   mke2fs -F -m 0 /data/local/ql/rootfs.ext4
   echo "[进度 04/08][50%] ████████░░░░░░░░ 挂载 rootfs 镜像"
   echo "正在挂载 ext4 rootfs 镜像"
@@ -104,12 +104,23 @@ ui_print "- 正在部署青龙 rootfs 到 /data/local/ql-rootfs"
   echo "[进度 05/08][62%] ██████████░░░░░░ 解压青龙 rootfs 压缩包"
   echo "正在解压 rootfs 压缩包"
   tar -xzf /data/local/ql/ql-rootfs-armv7.tar.gz -C /data/local/ql-rootfs
-  echo "[进度 06/08][75%] ████████████░░░░ 检查 rootfs 有效性"
+  echo "[进度 06/08][75%] ████████████░░░░ 安装 PM2 修复组件"
+  echo "正在安装 pm2 修复组件"
+  unzip -p "$ZIPFILE" "assets/pm2-overlay-armv7.tar.gz" | gzip -dc | tar -xf - -C /data/local/ql-rootfs || exit 1
+  mkdir -p /data/local/ql-rootfs/alpine/usr/local/bin
+  cat > /data/local/ql-rootfs/alpine/usr/local/bin/pm2 <<'EOF'
+#!/bin/sh
+exec node /root/.local/share/pnpm/global/5/.pnpm/pm2@5.2.0/node_modules/pm2/bin/pm2 "$@"
+EOF
+  chmod 755 /data/local/ql-rootfs/alpine/usr/local/bin/pm2
+  echo "[进度 07/08][87%] ██████████████░░ 解压全量依赖"
+  echo "正在解压青龙 2.15.5 全量依赖"
+  unzip -p "$ZIPFILE" "assets/ql2155-deps-overlay.tar.gz" | gzip -dc | tar -xf - -C /data/local/ql-rootfs || exit 1
+  rm -rf /data/local/ql-rootfs/alpine/root/.local/share/pnpm/store 2>/dev/null
   if [ ! -x /data/local/ql-rootfs/alpine/bin/busybox ]; then
     echo "Rootfs 无效: 缺少 /alpine/bin/busybox"
     exit 1
   fi
-  echo "[进度 07/08][87%] ██████████████░░ 准备运行环境目录"
   mkdir -p /data/local/ql-rootfs/alpine/proc /data/local/ql-rootfs/alpine/sys /data/local/ql-rootfs/alpine/dev /data/local/ql-rootfs/alpine/tmp
   chmod 1777 /data/local/ql-rootfs/alpine/tmp 2>/dev/null
   echo "Rootfs 已准备完成"
@@ -119,7 +130,8 @@ ui_print "- 正在部署青龙 rootfs 到 /data/local/ql-rootfs"
 {"username":"admin","password":"admin123"}
 EOF
   chmod 600 /data/local/ql-rootfs/alpine/ql/data/config/auth.json 2>/dev/null
-  echo "青龙 Lite 模块: qinglong_lite"
+  echo "[进度 08/08][100%] ████████████████ 检查运行环境并写入诊断日志"
+  echo "青龙 Lite 模块: qinglong_lite_2155"
   echo "ABI: $(getprop ro.product.cpu.abi)"
   echo "ABI list: $(getprop ro.product.cpu.abilist)"
   echo "Android: $(getprop ro.build.version.release) SDK $(getprop ro.build.version.sdk)"
@@ -129,7 +141,7 @@ EOF
   mount -t sysfs sysfs /data/local/ql-rootfs/alpine/sys 2>/dev/null
   mount -o bind /dev /data/local/ql-rootfs/alpine/dev 2>/dev/null
   "$BB" chroot /data/local/ql-rootfs/alpine /bin/sh -lc "
-    export HOME=/root PM2_HOME=/root/.pm2 PATH=/root/.local/share/pnpm:/root/.local/share/pnpm/global/5/node_modules/.bin:\$PATH
+    export HOME=/root PM2_HOME=/root/.pm2 QL_DIR=/ql PATH=/usr/local/bin:/root/.local/share/pnpm:/root/.local/share/pnpm/global/5/node_modules/.bin:\$PATH
     echo Rootfs 系统信息:
     [ -f /etc/os-release ] && sed -n '1,8p' /etc/os-release || true
     echo 运行环境版本:

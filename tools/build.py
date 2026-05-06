@@ -4,9 +4,9 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 MODULES = [
-    (ROOT / 'modules' / 'qinglong-2.10.13-sparse1536', ROOT / 'release' / 'QL-2.10.13-sparse1536-stuka.zip'),
-    (ROOT / 'modules' / 'qinglong-2.15.5-full-sparse1536', ROOT / 'release' / 'QL-2.15.5-full-sparse1536-stuka.zip'),
-    (ROOT / 'modules' / 'qinglong-2.15.5-online-sparse1536', ROOT / 'release' / 'QL-2.15.5-online-sparse1536-stuka.zip'),
+    (ROOT / 'modules' / 'qinglong-2.10.13-sparse1024', ROOT / 'release' / 'QL-2.10.13-sparse1024-stuka.zip'),
+    (ROOT / 'modules' / 'qinglong-2.15.5-full-sparse1024', ROOT / 'release' / 'QL-2.15.5-full-sparse1024-stuka.zip'),
+    (ROOT / 'modules' / 'qinglong-2.15.5-online-sparse1024', ROOT / 'release' / 'QL-2.15.5-online-sparse1024-stuka.zip'),
 ]
 
 
