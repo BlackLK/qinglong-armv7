@@ -1,0 +1,6 @@
+id=qinglong_lite_2155
+name=青龙2.15.5联网稀疏镜像版
+version=2.15.5-lite.1
+versionCode=2023013001
+author=stuka
+description=青龙2.15.5联网下载依赖稀疏镜像版。rootfs使用1536MB稀疏ext4镜像，避免/data inode不足且降低真实占用；已移除自动/手动扩容；默认登录 admin/admin123。

@@ -1,0 +1,293 @@
+#!/system/bin/sh
+ROOTFS_MOUNT=/data/local/ql-rootfs
+ROOTFS=/data/local/ql-rootfs/alpine
+QL_BASE=/data/local/ql
+ROOTFS_IMG=$QL_BASE/rootfs.ext4
+QL_HOME=/ql
+LOG_DIR=$QL_BASE/log
+RUN_DIR=$QL_BASE/run
+AUTOSTART_FILE=$QL_BASE/autostart
+BUSYBOX=/system/bin/busybox
+
+[ -x "$BUSYBOX" ] || BUSYBOX=/data/adb/magisk/busybox
+[ -x "$BUSYBOX" ] || BUSYBOX=busybox
+
+ROOTFS_SPACE_LOG=$LOG_DIR/space.log
+
+check_rootfs_space() {
+  ensure_dirs
+  echo "固定镜像 rootfs 空间状态:" >> "$ROOTFS_SPACE_LOG"
+  df -h /data "$ROOTFS_MOUNT" 2>/dev/null >> "$ROOTFS_SPACE_LOG"
+}
+
+print_usage() {
+  echo "Usage: qlctl {status|bootstrap|bootstrap-force|start|stop|restart|shell|logs|python|resize|enable-autostart|disable-autostart|doctor}"
+}
+
+ensure_dirs() {
+  mkdir -p "$QL_BASE" "$LOG_DIR" "$RUN_DIR"
+}
+
+find_module_dir() {
+  SELF_DIR=${0%/*}
+  CASE_MODDIR=${SELF_DIR%/system/bin}
+  [ -f "$CASE_MODDIR/module.prop" ] && echo "$CASE_MODDIR" && return 0
+  for d in /data/adb/modules/qinglong_lite_2155 /data/adb/modules_update/qinglong_lite_2155; do
+    [ -d "$d" ] && echo "$d" && return 0
+  done
+  return 1
+}
+
+find_rootfs_archive() {
+  MODDIR=$(find_module_dir)
+  for f in \
+    /data/local/ql/ql-rootfs-armv7.tar.gz \
+    /data/local/ql/ql-rootfs-armv7.tar.xz \
+    /data/local/ql/ql-rootfs-armv7.tgz \
+    /sdcard/Download/ql-rootfs-armv7.tar.gz \
+    /sdcard/Download/ql-rootfs-armv7.tar.xz \
+    /sdcard/Download/ql-rootfs-armv7.tgz \
+    "$MODDIR/assets/ql-rootfs-armv7.tar.gz" \
+    "$MODDIR/assets/ql-rootfs-armv7.tar.xz" \
+    "$MODDIR/assets/ql-rootfs-armv7.tgz"; do
+    [ -f "$f" ] && echo "$f" && return 0
+  done
+  return 1
+}
+
+is_rootfs_ready() {
+  [ -d "$ROOTFS" ] && [ -x "$ROOTFS/bin/busybox" ]
+}
+
+
+mount_rootfs_image() {
+  [ -f "$ROOTFS_IMG" ] || return 1
+  mkdir -p "$ROOTFS_MOUNT"
+  if ! grep -q " $ROOTFS_MOUNT " /proc/mounts; then
+    "$BUSYBOX" mount -o loop,rw "$ROOTFS_IMG" "$ROOTFS_MOUNT" || mount -o loop,rw "$ROOTFS_IMG" "$ROOTFS_MOUNT" || return 1
+  fi
+}
+
+check_arch() {
+  abi=$(getprop ro.product.cpu.abi)
+  case "$abi" in
+    armeabi-v7a|armeabi) return 0 ;;
+    *) echo "Unsupported ABI for this lite package: $abi"; return 1 ;;
+  esac
+}
+
+check_inode() {
+  free_inodes=$(stat -f "$QL_BASE" 2>/dev/null | awk '/Inodes:/ {print $5}')
+  [ -n "$free_inodes" ] || free_inodes=$(stat -f /data | awk '/Inodes:/ {print $5}')
+  echo "Free inodes: $free_inodes"
+  [ "$free_inodes" -ge 300 ] 2>/dev/null || {
+    echo "Warning: inode is low. QingLong may fail on this device."
+  }
+}
+
+mount_rootfs() {
+  mount_rootfs_image 2>/dev/null
+  is_rootfs_ready || return 1
+  mkdir -p "$ROOTFS/proc" "$ROOTFS/sys" "$ROOTFS/dev" "$ROOTFS/tmp"
+  grep -q " $ROOTFS/proc " /proc/mounts || mount -t proc proc "$ROOTFS/proc"
+  grep -q " $ROOTFS/sys " /proc/mounts || mount -t sysfs sysfs "$ROOTFS/sys"
+  grep -q " $ROOTFS/dev " /proc/mounts || mount -o bind /dev "$ROOTFS/dev"
+  if [ -d "$ROOTFS/dev/pts" ]; then
+    grep -q " $ROOTFS/dev/pts " /proc/mounts || mount -t devpts devpts "$ROOTFS/dev/pts" 2>/dev/null
+  fi
+  return 0
+}
+
+normalize_rootfs() {
+  for top in alpine debian rootfs; do
+    if [ ! -x "$ROOTFS/bin/sh" ] && [ -x "$ROOTFS/$top/bin/sh" ]; then
+      echo "Normalizing rootfs top directory: $top"
+      mv "$ROOTFS/$top"/.[!.]* "$ROOTFS/" 2>/dev/null
+      mv "$ROOTFS/$top"/* "$ROOTFS/" 2>/dev/null
+      rmdir "$ROOTFS/$top" 2>/dev/null
+    fi
+  done
+}
+
+umount_rootfs() {
+  for target in "$ROOTFS/dev/pts" "$ROOTFS/dev" "$ROOTFS/sys" "$ROOTFS/proc"; do
+    grep -q " $target " /proc/mounts && umount -l "$target" 2>/dev/null
+  done
+  grep -q " $ROOTFS_MOUNT " /proc/mounts && umount -l "$ROOTFS_MOUNT" 2>/dev/null
+}
+
+bootstrap_ql() {
+  ensure_dirs
+  check_arch || exit 1
+  check_inode
+  if is_rootfs_ready; then
+    echo "Rootfs already exists: $ROOTFS"
+    echo "Use qlctl shell/start/status directly."
+    exit 0
+  fi
+  archive=$(find_rootfs_archive) || {
+    echo "Rootfs archive not found."
+    echo "Put armv7/armhf archive here first:"
+    echo "  /sdcard/Download/ql-rootfs-armv7.tar.gz"
+    echo "  /sdcard/Download/ql-rootfs-armv7.tar.xz"
+    exit 1
+  }
+  mkdir -p "$ROOTFS"
+  echo "Extracting: $archive"
+  case "$archive" in
+    *.tar.gz|*.tgz) "$BUSYBOX" tar -xzf "$archive" -C "$ROOTFS" ;;
+    *.tar.xz) "$BUSYBOX" tar -xJf "$archive" -C "$ROOTFS" ;;
+    *) echo "Unsupported archive: $archive"; exit 1 ;;
+  esac
+  normalize_rootfs
+  if ! is_rootfs_ready; then
+    echo "Rootfs extract failed or invalid archive."
+    exit 1
+  fi
+  mkdir -p "$ROOTFS/proc" "$ROOTFS/sys" "$ROOTFS/dev" "$ROOTFS/tmp"
+  chmod 1777 "$ROOTFS/tmp" 2>/dev/null
+  echo "Rootfs ready: $ROOTFS"
+  doctor_ql
+}
+
+bootstrap_force_ql() {
+  ensure_dirs
+  echo "Stopping existing QingLong services"
+  stop_ql >/dev/null 2>&1
+  echo "Removing old rootfs: $ROOTFS"
+  rm -rf "$ROOTFS"
+  bootstrap_ql
+}
+
+status_ql() {
+  echo "Rootfs: $ROOTFS"
+  if is_rootfs_ready; then
+    echo "Rootfs status: ready"
+  else
+    echo "Rootfs status: missing"
+  fi
+  if [ -f "$AUTOSTART_FILE" ]; then
+    echo "Autostart: enabled"
+  else
+    echo "Autostart: disabled"
+  fi
+  if is_rootfs_ready && "$BUSYBOX" chroot "$ROOTFS" /bin/sh -lc "export HOME=/root PM2_HOME=/root/.pm2 QL_DIR=/ql PATH=/usr/local/bin:/root/.local/share/pnpm:/root/.local/share/pnpm/global/5/node_modules/.bin:\$PATH; command -v pm2 >/dev/null 2>&1 && pm2 jlist 2>/dev/null | grep -q '\"status\":\"online\"'" >/dev/null 2>&1; then
+    echo "QingLong: running or starting"
+    "$BUSYBOX" chroot "$ROOTFS" /bin/sh -lc "export HOME=/root PM2_HOME=/root/.pm2 QL_DIR=/ql PATH=/usr/local/bin:/root/.local/share/pnpm:/root/.local/share/pnpm/global/5/node_modules/.bin:\$PATH; pm2 l" 2>/dev/null || true
+  elif ps -A | grep -E "nginx.conf|node|PM2" >/dev/null 2>&1; then
+    echo "QingLong: running or starting"
+    ps -A | grep -E "nginx.conf|node|PM2" || true
+  else
+    echo "QingLong: stopped"
+  fi
+}
+
+start_ql() {
+  ensure_dirs
+  mount_rootfs || {
+    echo "Rootfs is not ready. Run: qlctl bootstrap"
+    exit 1
+  }
+  check_rootfs_space
+  if "$BUSYBOX" chroot "$ROOTFS" /bin/sh -lc "export HOME=/root PM2_HOME=/root/.pm2 QL_DIR=/ql PATH=/usr/local/bin:/root/.local/share/pnpm:/root/.local/share/pnpm/global/5/node_modules/.bin:\$PATH; command -v pm2 >/dev/null 2>&1 && pm2 jlist 2>/dev/null | grep -q '\"status\":\"online\"'" >/dev/null 2>&1; then
+    echo "QingLong already appears to be running"
+    return 0
+  fi
+  "$BUSYBOX" chroot "$ROOTFS" /bin/sh -lc "export HOME=/root PM2_HOME=/root/.pm2 QL_DIR=/ql PATH=/usr/local/bin:/root/.local/share/pnpm:/root/.local/share/pnpm/global/5/node_modules/.bin:\$PATH; cd $QL_HOME 2>/dev/null || exit 1; ( if command -v pm2 >/dev/null 2>&1 && [ -f ecosystem.config.js ]; then pm2 start ecosystem.config.js; elif [ -x ./docker/docker-entrypoint.sh ]; then /bin/bash ./docker/docker-entrypoint.sh; elif [ -f package.json ]; then node ./static/build/app.js; else echo 'No QingLong start command found'; exit 1; fi ) >/tmp/ql-start-inner.log 2>&1 &" >"$LOG_DIR/start.log" 2>&1
+  echo "QingLong start requested. Log: $LOG_DIR/start.log"
+}
+
+stop_ql() {
+  if is_rootfs_ready; then
+    "$BUSYBOX" chroot "$ROOTFS" /bin/sh -lc "export QL_DIR=/ql PATH=/usr/local/bin:/root/.local/share/pnpm:/root/.local/share/pnpm/global/5/node_modules/.bin:\$PATH; for h in /root/.pm2 /etc/.pm2 /.pm2; do export HOME=\${h%/.pm2} PM2_HOME=\$h; command -v pm2 >/dev/null 2>&1 && pm2 delete all || true; command -v pm2 >/dev/null 2>&1 && pm2 kill || true; done; nginx -s quit 2>/dev/null || true" >/dev/null 2>&1
+  fi
+  umount_rootfs
+  echo "QingLong stop requested"
+}
+
+shell_ql() {
+  mount_rootfs || {
+    echo "Rootfs is not ready. Run: qlctl bootstrap"
+    exit 1
+  }
+  "$BUSYBOX" chroot "$ROOTFS" /bin/sh
+}
+
+logs_ql() {
+  if [ -f "$LOG_DIR/start.log" ]; then
+    tail -n 80 "$LOG_DIR/start.log"
+  else
+    echo "No log: $LOG_DIR/start.log"
+  fi
+}
+
+install_python_ql() {
+  ensure_dirs
+  mount_rootfs || {
+    echo "Rootfs is not ready. Run: qlctl bootstrap"
+    exit 1
+  }
+  echo "Installing Python3 runtime. Log: $LOG_DIR/install-python.log"
+  "$BUSYBOX" chroot "$ROOTFS" /bin/sh -lc "
+    set -e
+    apk update
+    apk add --no-cache python3 py3-pip py3-requests py3-yaml py3-cryptography py3-certifi
+    python3 --version
+    python3 -c 'import requests, yaml; print(\"python runtime ok\")'
+  " >"$LOG_DIR/install-python.log" 2>&1
+  rc=$?
+  cat "$LOG_DIR/install-python.log"
+  [ "$rc" -eq 0 ] && echo "Python3 runtime is ready" || echo "Python3 runtime install failed"
+  return "$rc"
+}
+
+doctor_ql() {
+  ensure_dirs
+  echo "QingLong Lite module: qinglong_lite_2155"
+  echo "ABI: $(getprop ro.product.cpu.abi)"
+  echo "ABI list: $(getprop ro.product.cpu.abilist)"
+  echo "Android: $(getprop ro.build.version.release) SDK $(getprop ro.build.version.sdk)"
+  df -h /data /sdcard 2>/dev/null
+  stat -f /data | grep -E 'Blocks|Inodes'
+  if is_rootfs_ready; then
+    mount_rootfs && "$BUSYBOX" chroot "$ROOTFS" /bin/sh -lc "
+      export HOME=/root PM2_HOME=/root/.pm2 QL_DIR=/ql PATH=/usr/local/bin:/root/.local/share/pnpm:/root/.local/share/pnpm/global/5/node_modules/.bin:\$PATH
+      echo Rootfs shell: \$(/bin/sh --version 2>&1 | head -1)
+      echo Rootfs os-release:
+      [ -f /etc/os-release ] && sed -n '1,8p' /etc/os-release || true
+      echo Runtime versions:
+      command -v node >/dev/null 2>&1 && echo node=\$(node -v) || echo node=missing
+      command -v npm >/dev/null 2>&1 && echo npm=\$(npm -v) || echo npm=missing
+      command -v pnpm >/dev/null 2>&1 && echo pnpm=\$(pnpm -v) || echo pnpm=missing
+      command -v pm2 >/dev/null 2>&1 && echo pm2=\$(pm2 -v 2>/dev/null | tail -1) || echo pm2=missing
+      command -v nginx >/dev/null 2>&1 && echo nginx=\$(nginx -v 2>&1) || echo nginx=missing
+      if [ -d /ql ]; then
+        echo QingLong dir: /ql
+        [ -f /ql/package.json ] && echo QingLong package version: \$(grep '\"version\"' /ql/package.json | head -1 | sed 's/[\", ]//g')
+        [ -f /ql/version.yaml ] && echo QingLong version.yaml: \$(cat /ql/version.yaml | tr '\n' ' ')
+        [ -f /ql/.env ] && echo QingLong env: present
+      else
+        echo Missing /ql
+      fi
+    "
+  else
+    echo "Rootfs missing. Run: qlctl bootstrap"
+  fi
+}
+
+case "$1" in
+  status) status_ql ;;
+  bootstrap) bootstrap_ql ;;
+  bootstrap-force) bootstrap_force_ql ;;
+  start) start_ql ;;
+  stop) stop_ql ;;
+  restart) stop_ql; start_ql ;;
+  resize) check_rootfs_space; echo "固定镜像版已移除扩容功能" ;;
+  shell) shell_ql ;;
+  logs) logs_ql ;;
+  python) install_python_ql ;;
+  doctor) doctor_ql ;;
+  enable-autostart) ensure_dirs; touch "$AUTOSTART_FILE"; echo "Autostart enabled" ;;
+  disable-autostart) rm -f "$AUTOSTART_FILE"; echo "Autostart disabled" ;;
+  *) print_usage; exit 1 ;;
+esac

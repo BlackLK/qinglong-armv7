@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+.DS_Store
+Thumbs.db
+*.log
+.tmp/
+tmp/
+# Keep release zips tracked by Git LFS. Remove the next line if you only want source code.
+# release/*.zip

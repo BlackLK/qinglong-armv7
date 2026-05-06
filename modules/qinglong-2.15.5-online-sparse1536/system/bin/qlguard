@@ -1,0 +1,90 @@
+#!/system/bin/sh
+QL_BASE=/data/local/ql
+LOG_DIR=$QL_BASE/log
+AUTOSTART_FILE=$QL_BASE/autostart
+FAIL_COUNT_FILE=$QL_BASE/boot_fail_count
+DISABLED_FILE=$QL_BASE/autostart.disabled-by-guard
+SELF_DIR=${0%/*}
+QLCTL=$SELF_DIR/qlctl
+[ -r /system/bin/qlctl ] && QLCTL=/system/bin/qlctl
+[ -x "$QLCTL" ] || QLCTL=/system/bin/qlctl
+MIN_MEM_KB=120000
+BOOT_DELAY=45
+CHECK_WINDOW=300
+MAX_FAILS=2
+
+mkdir -p "$LOG_DIR"
+LOG_FILE=$LOG_DIR/guard.log
+
+log_msg() {
+  echo "$(date '+%Y-%m-%d %H:%M:%S') $*" >>"$LOG_FILE"
+}
+
+mem_available_kb() {
+  awk '/MemAvailable:/ {print $2}' /proc/meminfo
+}
+
+fail_count() {
+  [ -f "$FAIL_COUNT_FILE" ] && cat "$FAIL_COUNT_FILE" || echo 0
+}
+
+set_fail_count() {
+  echo "$1" >"$FAIL_COUNT_FILE"
+}
+
+disable_autostart() {
+  rm -f "$AUTOSTART_FILE"
+  touch "$DISABLED_FILE"
+  log_msg "Autostart disabled by guard"
+}
+
+if [ ! -f "$AUTOSTART_FILE" ]; then
+  log_msg "Autostart marker missing, guard exits"
+  exit 0
+fi
+
+count=$(fail_count)
+if [ "$count" -ge "$MAX_FAILS" ] 2>/dev/null; then
+  log_msg "Fail count $count reached limit $MAX_FAILS, stopping and disabling autostart"
+  sh "$QLCTL" stop >>"$LOG_FILE" 2>&1
+  disable_autostart
+  exit 0
+fi
+
+log_msg "Guard started, boot delay ${BOOT_DELAY}s"
+sleep "$BOOT_DELAY"
+
+mem=$(mem_available_kb)
+log_msg "MemAvailable before start: ${mem}kB"
+if [ -n "$mem" ] && [ "$mem" -lt "$MIN_MEM_KB" ] 2>/dev/null; then
+  log_msg "Memory too low before start, skip QingLong start"
+  set_fail_count $((count + 1))
+  sh "$QLCTL" stop >>"$LOG_FILE" 2>&1
+  exit 0
+fi
+
+log_msg "Starting QingLong"
+sh "$QLCTL" start >>"$LOG_FILE" 2>&1
+
+elapsed=0
+while [ "$elapsed" -lt "$CHECK_WINDOW" ]; do
+  sleep 10
+  elapsed=$((elapsed + 10))
+  mem=$(mem_available_kb)
+  log_msg "Health check ${elapsed}s: MemAvailable=${mem}kB"
+  if [ -n "$mem" ] && [ "$mem" -lt "$MIN_MEM_KB" ] 2>/dev/null; then
+    log_msg "Memory too low after start, stopping QingLong"
+    sh "$QLCTL" stop >>"$LOG_FILE" 2>&1
+    set_fail_count $((count + 1))
+    exit 0
+  fi
+  if ! sh "$QLCTL" status 2>/dev/null | grep -q "QingLong: running"; then
+    log_msg "QingLong process not found during health check"
+    set_fail_count $((count + 1))
+    exit 0
+  fi
+done
+
+log_msg "QingLong boot health check passed"
+set_fail_count 0
+exit 0
