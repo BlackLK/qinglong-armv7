@@ -9,8 +9,8 @@ QLCTL=$SELF_DIR/qlctl
 [ -r /system/bin/qlctl ] && QLCTL=/system/bin/qlctl
 [ -x "$QLCTL" ] || QLCTL=/system/bin/qlctl
 MIN_MEM_KB=120000
-BOOT_DELAY=45
-CHECK_WINDOW=120
+BOOT_DELAY=75
+CHECK_WINDOW=360
 MAX_FAILS=2
 
 mkdir -p "$LOG_DIR"
@@ -21,7 +21,16 @@ log_msg() {
 }
 
 mem_available_kb() {
-  awk '/MemAvailable:/ {print $2}' /proc/meminfo
+  while read key value unit; do
+    [ "$key" = "MemAvailable:" ] && echo "$value" && return 0
+  done < /proc/meminfo
+}
+
+panel_api_ready() {
+  if command -v wget >/dev/null 2>&1; then
+    wget -qO- -T 5 http://127.0.0.1:5700/api/system 2>/dev/null | grep -q '"code":200' && return 0
+  fi
+  /sbin/.magisk/busybox/busybox wget -qO- -T 5 http://127.0.0.1:5700/api/system 2>/dev/null | grep -q '"code":200'
 }
 
 fail_count() {
@@ -78,6 +87,11 @@ while [ "$elapsed" -lt "$CHECK_WINDOW" ]; do
     set_fail_count $((count + 1))
     exit 0
   fi
+  if panel_api_ready; then
+    log_msg "QingLong panel API is ready"
+    set_fail_count 0
+    exit 0
+  fi
   if ! sh "$QLCTL" status 2>/dev/null | grep -q "QingLong: running"; then
     log_msg "QingLong process not found during health check"
     set_fail_count $((count + 1))
@@ -85,6 +99,6 @@ while [ "$elapsed" -lt "$CHECK_WINDOW" ]; do
   fi
 done
 
-log_msg "QingLong boot health check passed"
+log_msg "QingLong boot health check window ended, process still running"
 set_fail_count 0
 exit 0
